@@ -51,7 +51,7 @@ svd.plot_singular_values(s)
 # lets start : 
 
 print("Initializing Q and pT \n")
-Q=U[:,:2]
+Q=U[:,:20]
 print("Q matrix:",Q.shape,"\n",Q)
 pT=s@VT[:20,:]
 print("\npT matrix:",pT.shape,"\n",pT)

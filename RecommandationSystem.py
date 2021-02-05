@@ -8,6 +8,7 @@ class RecommandationSystem():
     def __init__(self):
         #load the MovieLens Dataset and convert it to a Numpy matrix
         self.M = ratingsMatrix()
+        #self.M = np.array([[1, 1, 1, 0, 0], [3, 3, 3, 0, 0], [4, 4, 4, 0, 0], [5, 5, 5, 0, 0], [0, 0, 0, 4, 4], [0, 0, 0, 5, 5], [0, 0, 0, 2, 2]])
         self.X, self.Y = self.M.shape
     
     #Non-negative matrix factorization implementations
@@ -58,6 +59,97 @@ class RecommandationSystem():
             P[P < 0] = 0
 
         return (P @ Q).round(decimals=1)
+
+    def computeCUR(self, r):
+      """
+      CUR decomposition
+
+      Arguments
+      - r (int) : random number of selected rows and columns
+      """
+
+      self.r = r
+      self.R, self.C, self.selectedRowsInd, self.selectedColsInd = self.computeCR()
+      self.U = self.computeU()
+
+      return self.C.dot(self.U.dot(self.R))
+
+    def computeCR(self):
+      """
+      Computation of C and R matrices
+
+      """
+      nbRows = self.M.shape[0]
+      nbCols = self.M.shape[1]
+
+      # compute the square of the Frobenius norm of M
+      squareFrobenious = (self.M**2).sum()
+
+      # columns squared Frobenius norm
+      sumSquaresCols = (self.M**2).sum(axis=0)
+
+      # columns probabilities
+      probCols = sumSquaresCols / squareFrobenious
+
+      # selected columns' indices
+      selectedColsInd = np.random.choice(np.arange(0, nbCols),size=self.r,replace=True,p=probCols)
+
+      # selected columns' values
+      selectedCols = self.M[:,selectedColsInd]
+
+      # dividing columns' elements by the square root of the expected number of times this column would be picked
+      selectedCols = np.divide(selectedCols,(self.r*probCols[selectedColsInd])**0.5)
+
+      # rows squared Frobenius norm
+      sumSquaresRows = (self.M**2).sum(axis=1)
+
+      # rows probabilities
+      probRows = sumSquaresRows / squareFrobenious
+
+      # selected rows' indices
+      selectedRowsInd = np.random.choice(np.arange(0, nbRows),size=self.r,replace=True,p=probRows)
+      # selected rows' values
+      selectedRows = self.M[selectedRowsInd,:]
+
+      # dividing rows' elements by the square root of the expected number of times this column would be picked
+      tmp = np.array([(self.r*probRows[selectedRowsInd])**0.5])
+      selectedRows = np.divide(selectedRows,tmp.transpose())
+
+      return selectedRows, selectedCols, selectedRowsInd, selectedColsInd
+
+    def computeU(self):
+      """
+      Computation of middle matrix U
+      
+      """
+      tmp = self.M[self.selectedRowsInd,:]
+      W = tmp[:,self.selectedColsInd]
+
+      U, s, Vh = np.linalg.svd(W, full_matrices=False)
+      s = np.diag(s)
+
+      for i in range(min(s.shape[0], s.shape[1])):
+        if s[i][i] != 0:
+          s[i][i] = 1 / s[i][i]
+
+      u = Vh.transpose().dot(np.square(s).dot(U.transpose()))
+
+      return u
+
+    def calculateOptimalValueR(self):
+      """
+      Calculates optimal value of number of columns and rows for CUR decomposition
+      """
+      min_error = 1e50
+      min_error_index = 0
+      for i in range(1,self.X):
+        m = self.computeCUR(i)
+        error = self.RMSE(m)
+        if error < min_error:
+          min_error = error
+          min_error_index = i
+        #print(min_error,i)
+      print('min error at ',min_error,min_error_index)
 
     #Error computing
     def RMSE(self, PM):
@@ -118,6 +210,90 @@ class RecommandationSystem():
 
         return results
 
+    def calculatePrecisionOnTopK(self, k):
+      """
+      Calculates the Precision on Top K
+      Arguments
+        - k (int) : The k in Precision on Top k
+      
+      Output
+        - Precision on Top K
+        - Recall on Top K
+      """
+      
+      recall = 0
+      precision = 0 
+      for i in range(self.X):
+        query = self.M[i,:]
+        query = np.reshape(query,(1, query.shape[0]))
+
+        temp = query.dot(self.R.T)
+
+        # needed to rescale predicted ratings
+        #prediction = np.divide(temp.dot(self.R), 100000)
+        prediction = temp.dot(self.R)
+
+        idx = prediction.argsort()[0, ::-1]
+        prediction = prediction[0,idx]
+        query = query[0, idx]
+
+        prediction[prediction < 3] = 0
+        prediction[prediction > 3] = 1
+
+        query[query == 0] = -1
+        query[(query < 3) & (query > 0)] = 0
+        query[query >= 3] = 1
+
+        #idx = prediction.argsort()[0, ::-1][:k]
+        #prediction = prediction[0,idx]
+        
+        #query = query[0, idx]]
+        relevant_items = 0
+        recommended_items = 0
+        rec_relevant_items = 0
+        recall_item = 0
+        precision_item = 0 
+
+        #Recall on top k
+        for i in range(0,query.shape[0]):
+          if (relevant_items == k): 
+            break
+          if (query[i] != -1):
+            #print("predicted: %d - True: %d"%(prediction[i], query[i]))
+            if (query[i] == 1):
+              relevant_items += 1 
+              if(prediction[i] == 1):
+                rec_relevant_items +=1
+        if (relevant_items != 0):
+          recall_item = rec_relevant_items / relevant_items
+        else:
+          recall_item = 0.0
+        recall += recall_item
+
+        #precision on top k
+        rec_relevant_items = 0
+        for i in range(0,query.shape[0]):
+          if (recommended_items == k): 
+            break
+          if (query[i] != -1):
+            #print("predicted: %d - True: %d"%(prediction[i], query[i]))
+            if (prediction[i] == 1):
+              recommended_items += 1
+              if(query[i] == 1):
+                rec_relevant_items +=1
+        
+        if (recommended_items != 0):
+          precision_item = rec_relevant_items / recommended_items
+        else:
+          precision_item = 0.0
+        precision += precision_item
+      return precision / self.X, recall / self.X
+
 r = RecommandationSystem()
 print(r.recPreF1(r.NMF_MU(2, 10, 0.002)))
-    
+
+#CUR and evaluation
+CUR = r.computeCUR(r = 4)
+RMSE = r.RMSE(CUR)
+precision, recall = r.calculatePrecisionOnTopK(10)
+print("RMSE = %f. Precision on TOP 10 = %f. Recall on TOP 10 = %f"%(RMSE, precision, recall))

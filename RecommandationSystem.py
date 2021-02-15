@@ -2,13 +2,16 @@ from movieLensDataset import *
 import numpy as np
 from numpy.linalg import lstsq
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 class RecommandationSystem():
 
     def __init__(self):
         #load the MovieLens Dataset and convert it to a Numpy matrix
         self.M = ratingsMatrix()
-        #self.M = np.array([[1, 1, 1, 0, 0], [3, 3, 3, 0, 0], [4, 4, 4, 0, 0], [5, 5, 5, 0, 0], [0, 0, 0, 4, 4], [0, 0, 0, 5, 5], [0, 0, 0, 2, 2]])
+        self.train_set, self.test_set = train_test_split(
+            ratingsMatrix(), test_size=0.3
+        )
         self.X, self.Y = self.M.shape
     
     #Non-negative matrix factorization implementations
@@ -60,33 +63,58 @@ class RecommandationSystem():
 
         return (P @ Q).round(decimals=1)
 
-    def computeCUR(self, r):
+    def computeCUR(self, r, N=10, dataset = "train"):
       """
       CUR decomposition
 
       Arguments
       - r (int) : random number of selected rows and columns
       """
-
+      if (dataset == "train"): M = self.train_set
+      else : M = self.test_set
       self.r = r
-      self.R, self.C, self.selectedRowsInd, self.selectedColsInd = self.computeCR()
+      self.R, self.C, self.selectedRowsInd, self.selectedColsInd = self.computeCR(dataset)
       self.U = self.computeU()
+      self.CUR = self.C.dot(self.U.dot(self.R))
+      self.error = self.RMSE(self.CUR, M)
+      #print("Initial error: %f"%self.error)
+      
+      for _ in range(N):
+        R_temp, C_temp, selectedRowsInd_temp, selectedColsInd_temp = self.computeCR(dataset)
+        U_temp = self.computeU(dataset)
+        CUR_temp = C_temp.dot(U_temp.dot(R_temp))
+        error_temp = self.RMSE(CUR_temp, M)
 
-      return self.C.dot(self.U.dot(self.R))
+        if error_temp <= self.error:
+          #print("error_Temp at %d = %f"%(i, error_temp))
+          
+          self.selectedRowsInd = selectedRowsInd_temp
+          self.selectedColsInd = selectedColsInd_temp
+          self.C = C_temp
+          self.U = U_temp
+          self.R = R_temp
+          self.CUR = CUR_temp
+          self.error = error_temp
+      
 
-    def computeCR(self):
+      return self.CUR, self.error
+
+    def computeCR(self, dataset = "train"):
       """
       Computation of C and R matrices
 
       """
-      nbRows = self.M.shape[0]
-      nbCols = self.M.shape[1]
+      if (dataset == "train"): M = self.train_set
+      else : M = self.test_set
+      
+      nbRows = M.shape[0]
+      nbCols = M.shape[1]
 
       # compute the square of the Frobenius norm of M
-      squareFrobenious = (self.M**2).sum()
+      squareFrobenious = (M**2).sum()
 
       # columns squared Frobenius norm
-      sumSquaresCols = (self.M**2).sum(axis=0)
+      sumSquaresCols = (M**2).sum(axis=0)
 
       # columns probabilities
       probCols = sumSquaresCols / squareFrobenious
@@ -95,13 +123,13 @@ class RecommandationSystem():
       selectedColsInd = np.random.choice(np.arange(0, nbCols),size=self.r,replace=True,p=probCols)
 
       # selected columns' values
-      selectedCols = self.M[:,selectedColsInd]
+      selectedCols = M[:,selectedColsInd]
 
       # dividing columns' elements by the square root of the expected number of times this column would be picked
       selectedCols = np.divide(selectedCols,(self.r*probCols[selectedColsInd])**0.5)
 
       # rows squared Frobenius norm
-      sumSquaresRows = (self.M**2).sum(axis=1)
+      sumSquaresRows = (M**2).sum(axis=1)
 
       # rows probabilities
       probRows = sumSquaresRows / squareFrobenious
@@ -109,7 +137,7 @@ class RecommandationSystem():
       # selected rows' indices
       selectedRowsInd = np.random.choice(np.arange(0, nbRows),size=self.r,replace=True,p=probRows)
       # selected rows' values
-      selectedRows = self.M[selectedRowsInd,:]
+      selectedRows = M[selectedRowsInd,:]
 
       # dividing rows' elements by the square root of the expected number of times this column would be picked
       tmp = np.array([(self.r*probRows[selectedRowsInd])**0.5])
@@ -117,15 +145,19 @@ class RecommandationSystem():
 
       return selectedRows, selectedCols, selectedRowsInd, selectedColsInd
 
-    def computeU(self):
+    def computeU(self, dataset = "train"):
       """
       Computation of middle matrix U
       
       """
-      tmp = self.M[self.selectedRowsInd,:]
+      if (dataset == "train"): M = self.train_set
+      else : M = self.test_set
+
+      tmp = M[self.selectedRowsInd,:]
       W = tmp[:,self.selectedColsInd]
 
       U, s, Vh = np.linalg.svd(W, full_matrices=False)
+      """
       s = np.diag(s)
 
       for i in range(min(s.shape[0], s.shape[1])):
@@ -133,33 +165,54 @@ class RecommandationSystem():
           s[i][i] = 1 / s[i][i]
 
       u = Vh.transpose().dot(np.square(s).dot(U.transpose()))
+      """
+      #"""
+      for i in range(len(s)):
+        if s[i] == 0:
+            continue
+        else:
+            s[i] = 1 / s[i]
+      s = np.diag(s)
+      u = np.dot(np.dot(Vh, s), U.T)
+      #u = Vh.dot(s.dot(U.transpose()))
+      #"""
 
       return u
-
-    def calculateOptimalValueR(self):
+      
+    def calculateOptimalValueR(self, data_set = "train"):
       """
       Calculates optimal value of number of columns and rows for CUR decomposition
       """
       min_error = 1e50
       min_error_index = 0
-      for i in range(1,self.X):
-        m = self.computeCUR(i)
-        error = self.RMSE(m)
+
+      if (data_set == "train"):
+        r_range = [1,2,3,4,5,6,7,8,9,10,20,50,100,200,300,400]
+      else:
+        r_range = [1,2,3,4,5,6,7,8,9,10,20,50,100,150]
+      print("Calculating optimal value of r...")
+      for i in r_range:
+        m, error = self.computeCUR(i, dataset = data_set)
+        #error = self.RMSE(m)
         if error < min_error:
           min_error = error
           min_error_index = i
+          best_m = m
         #print(min_error,i)
-      print('min error at ',min_error,min_error_index)
+      #print('min error at ',min_error,min_error_index)
+      #print("Error at %d is %f"%(i, error))
+      return best_m, min_error, min_error_index
 
     #Error computing
-    def RMSE(self, PM):
+    def RMSE(self, PM, OM = None):
         """
         Computes Root Mean Square Error 
 
         Arguments
         - PM (matrix) : predicted matrix to compare with original
         """
-        return np.sqrt(np.mean((PM-self.M)**2))
+        if OM is None: OM = self.M
+        return np.sqrt(np.mean((PM-OM)**2))
 
     def recPreF1(self, PM):
         """
@@ -220,11 +273,13 @@ class RecommandationSystem():
         - Precision on Top K
         - Recall on Top K
       """
-      
+      test_set = self.test_set
       recall = 0
       precision = 0 
-      for i in range(self.X):
-        query = self.M[i,:]
+      #pred_mat_test = []
+      #temp = test_set.dot(self.R.T)
+      for i in range(test_set.shape[0]):
+        query = test_set[i,:]
         query = np.reshape(query,(1, query.shape[0]))
 
         temp = query.dot(self.R.T)
@@ -232,6 +287,7 @@ class RecommandationSystem():
         # needed to rescale predicted ratings
         #prediction = np.divide(temp.dot(self.R), 100000)
         prediction = temp.dot(self.R)
+        #pred_mat_test.append(prediction)
 
         idx = prediction.argsort()[0, ::-1]
         prediction = prediction[0,idx]
@@ -287,18 +343,23 @@ class RecommandationSystem():
         else:
           precision_item = 0.0
         precision += precision_item
-      return precision / self.X, recall / self.X
+
+      CUR_on_test, RMSE_on_test, r_value = self.calculateOptimalValueR(data_set = "test")
+      return RMSE_on_test, r_value, precision / test_set.shape[0], recall / test_set.shape[0]
 
 r = RecommandationSystem()
-print(r.recPreF1(r.NMF_MU(2, 10, 0.002)))
+#print(r.recPreF1(r.NMF_MU(2, 10, 0.002)))
 
 #CUR and evaluation
-CUR = r.computeCUR(r = 4)
-RMSE = r.RMSE(CUR)
-precision, recall = r.calculatePrecisionOnTopK(10)
-print("RMSE = %f. Precision on TOP 10 = %f. Recall on TOP 10 = %f"%(RMSE, precision, recall))
-
-
+print("#########################################")
+print("Computing CUR and RMSE on training set.")
+CUR, RMSE, r_value = r.calculateOptimalValueR("train")
+topK = 50
+print("Computing RMSE on testing set and evaluation.")
+rmse_test, r_val_test, precision, recall = r.calculatePrecisionOnTopK(topK)
+print("Train set: RMSE = %f. Optimal value of r = %d\nTest set: RMSE = %f. Optimal value of r = %d. Precision on TOP %d = %f. Recall on TOP %d = %f"%(RMSE, r_value, rmse_test, r_val_test, topK, precision, topK, recall))
+print("#########################################")
+"""
 #----SVD factorization --------------
 
 import pandas as pd
@@ -393,6 +454,6 @@ for _ in range(10):
             for i in range(R.shape[0]):
                 grad_pT+=-2*(R[i,x]-(Q[i,:]@pT[:,x]))*Q[i,k_] + 2*lamda*pT[k_,x]
             pT_[k_,x]-=n*grad_pT
-
+"""
            
    

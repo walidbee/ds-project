@@ -348,7 +348,7 @@ class RecommandationSystem():
       return RMSE_on_test, r_value, precision / test_set.shape[0], recall / test_set.shape[0]
 
 r = RecommandationSystem()
-#print(r.recPreF1(r.NMF_MU(2, 10, 0.002)))
+print(r.recPreF1(r.NMF_MU(2, 10, 0.002)))
 
 #CUR and evaluation
 print("#########################################")
@@ -359,7 +359,7 @@ print("Computing RMSE on testing set and evaluation.")
 rmse_test, r_val_test, precision, recall = r.calculatePrecisionOnTopK(topK)
 print("Train set: RMSE = %f. Optimal value of r = %d\nTest set: RMSE = %f. Optimal value of r = %d. Precision on TOP %d = %f. Recall on TOP %d = %f"%(RMSE, r_value, rmse_test, r_val_test, topK, precision, topK, recall))
 print("#########################################")
-"""
+
 #----SVD factorization --------------
 
 import pandas as pd
@@ -454,6 +454,6 @@ for _ in range(10):
             for i in range(R.shape[0]):
                 grad_pT+=-2*(R[i,x]-(Q[i,:]@pT[:,x]))*Q[i,k_] + 2*lamda*pT[k_,x]
             pT_[k_,x]-=n*grad_pT
-"""
+
            
    

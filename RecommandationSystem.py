@@ -361,66 +361,6 @@ topK = 10
 precision, recall = r.calculatePrecisionOnTopK(topK, CUR)
 print("RMSE = %f. Precision on TOP %d = %f. Recall on TOP %d = %f"%(RMSE, topK, precision, topK, recall))
 
-#----SVD factorization --------------
-
-import pandas as pd
-import numpy as np
-import os
-import matplotlib.pyplot as plt
-
-!wget http://files.grouplens.org/datasets/movielens/ml-latest-small.zip
-!unzip ml-latest-small.zip
-
-csv_file=pd.read_csv("ml-latest-small/ratings.csv")
-utility_matrix=csv_file.pivot(index='movieId', columns='userId', values='rating').fillna(0.0)
-utility_matrix
-
-R = utility_matrix.to_numpy()
-
-
-class SVD():
-    def __init__(self, M):
-        self.M = M
-        
-    def computeSVD(self,M):
-        U, S, VT = np.linalg.svd(self.M, full_matrices=False)
-        s=np.diag(S[0:20])
-        return U, S, VT, s
-        
-    def plot_singular_values(self,s):
-        plt.semilogy(np.diagonal(s))
-        plt.title('plot Singular Values')
-        plt.show()
-        
-    def rank_S(self,S):
-        print("rank:")
-        return len(S)
-  
-#----------------------------------------------------------------------------
-
-svd=SVD(R)
-U, S, VT, s=svd.computeSVD(R)
-
-svd.plot_singular_values(s)
-
-
-# calculate initial P and Q 
-# we fill missing rating of the original matrix with zeros
-# we calculate the svd of this matrix
-# we do the svd of this matriw , we will not use the svd to predict missing values but only to factorize the 
-# initial estimated matrix model
-# R = U S VT
-# lets make : Q=U, and pT=S * VT
-
-# lets start : 
-
-print("Initializing Q and pT \n")
-Q=U[:,:20]
-print("Q matrix:",Q.shape,"\n",Q)
-pT=s@VT[:20,:]
-print("\npT matrix:",pT.shape,"\n",pT)
-
-
 
 #______________________SVD _ Factorization _ and SGD ________________________________________________
 
@@ -525,10 +465,7 @@ i_j_R_at3=[
     if R[i, j] > 3
 ]
 
-#__________________________________
-
-# SGD & RMSE & precision functions
-#__________________________________
+# SGD & RMSE & precision functions ________________________________
 
 def grad_pT_func(R,Q,pT,list_j,list_i,k,len_items,len_users,lamda):
     grad_pT=np.zeros((k,len_users))
@@ -578,8 +515,7 @@ def precision_func(i_j_R_at3,QpT):
     precision=Tp/len(i_j_R_at3)
     
     return precision   
-#________________________SGD__RMSE__PRECISION ________________
-#_____________________________________________________________
+#____SGD__RMSE__PRECISION _____end_______________________________________
 
 
 # Adjusting parameters and running SGD & RMSE functions

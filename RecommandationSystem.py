@@ -63,6 +63,34 @@ class RecommandationSystem():
 
         return (P @ Q).round(decimals=1)
 
+    def NMF_GRAD(self, K, steps, alpha, beta):
+      """
+      Non-negative matrix factorization using gradient descent
+
+      Arguments
+      - K (int) : number of latent features
+      - steps (int) : number of times we run the algorithm
+      - alpha (float): learning rate (rate to approach the minimum)
+      - beta (float):  number to avoid overfitting (avoir large numbers)
+      """
+      #initialize P and Q matrices
+      P = np.random.rand(self.X, K)
+      Q = np.random.rand(K, self.Y)
+
+      for _ in range(steps):
+
+        for x in range(self.X):
+          for y in range(self.Y):
+              #compute error between estimated and real rating
+              err = self.M[x][y] - np.dot(P[x,:], Q[:,y])
+
+              for k in range(K):
+                #compute gradient for each value to minimize the error
+                P[x][k] = P[x][k] + alpha * (2 * err * Q[k][y] - beta * P[x][k])
+                Q[k][y] = Q[k][y] + alpha * (2 * err * P[x][k] - beta * Q[k][y])
+
+      return (P @ Q).round(decimals=1)
+
     def computeCUR(self, r, N=30):
       """
       CUR decomposition

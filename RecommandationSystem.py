@@ -63,31 +63,30 @@ class RecommandationSystem():
 
         return (P @ Q).round(decimals=1)
 
-    def computeCUR(self, r, N=10, dataset = "train"):
+    def computeCUR(self, r, N=30):
       """
       CUR decomposition
 
       Arguments
       - r (int) : random number of selected rows and columns
       """
+      """
       if (dataset == "train"): M = self.train_set
       else : M = self.test_set
+      """
       self.r = r
-      self.R, self.C, self.selectedRowsInd, self.selectedColsInd = self.computeCR(dataset)
+      self.R, self.C, self.selectedRowsInd, self.selectedColsInd = self.computeCR()
       self.U = self.computeU()
       self.CUR = self.C.dot(self.U.dot(self.R))
-      self.error = self.RMSE(self.CUR, M)
-      #print("Initial error: %f"%self.error)
+      self.error = self.RMSE(self.CUR, self.M)
       
       for _ in range(N):
-        R_temp, C_temp, selectedRowsInd_temp, selectedColsInd_temp = self.computeCR(dataset)
-        U_temp = self.computeU(dataset)
+        R_temp, C_temp, selectedRowsInd_temp, selectedColsInd_temp = self.computeCR()
+        U_temp = self.computeU()
         CUR_temp = C_temp.dot(U_temp.dot(R_temp))
-        error_temp = self.RMSE(CUR_temp, M)
+        error_temp = self.RMSE(CUR_temp, self.M)
 
         if error_temp <= self.error:
-          #print("error_Temp at %d = %f"%(i, error_temp))
-          
           self.selectedRowsInd = selectedRowsInd_temp
           self.selectedColsInd = selectedColsInd_temp
           self.C = C_temp
@@ -99,14 +98,14 @@ class RecommandationSystem():
 
       return self.CUR, self.error
 
-    def computeCR(self, dataset = "train"):
+    def computeCR(self):
       """
       Computation of C and R matrices
 
       """
-      if (dataset == "train"): M = self.train_set
-      else : M = self.test_set
-      
+
+      M = self.M
+
       nbRows = M.shape[0]
       nbCols = M.shape[1]
 
@@ -126,7 +125,7 @@ class RecommandationSystem():
       selectedCols = M[:,selectedColsInd]
 
       # dividing columns' elements by the square root of the expected number of times this column would be picked
-      selectedCols = np.divide(selectedCols,(self.r*probCols[selectedColsInd])**0.5)
+      #selectedCols = np.divide(selectedCols,(self.r*probCols[selectedColsInd])**0.5)
 
       # rows squared Frobenius norm
       sumSquaresRows = (M**2).sum(axis=1)
@@ -140,67 +139,55 @@ class RecommandationSystem():
       selectedRows = M[selectedRowsInd,:]
 
       # dividing rows' elements by the square root of the expected number of times this column would be picked
-      tmp = np.array([(self.r*probRows[selectedRowsInd])**0.5])
-      selectedRows = np.divide(selectedRows,tmp.transpose())
+      #tmp = np.array([(self.r*probRows[selectedRowsInd])**0.5])
+      #selectedRows = np.divide(selectedRows,tmp.transpose())
 
       return selectedRows, selectedCols, selectedRowsInd, selectedColsInd
 
-    def computeU(self, dataset = "train"):
+    def computeU(self):
       """
       Computation of middle matrix U
       
       """
-      if (dataset == "train"): M = self.train_set
-      else : M = self.test_set
+      M = self.M
 
       tmp = M[self.selectedRowsInd,:]
       W = tmp[:,self.selectedColsInd]
 
       U, s, Vh = np.linalg.svd(W, full_matrices=False)
-      """
+
       s = np.diag(s)
 
       for i in range(min(s.shape[0], s.shape[1])):
         if s[i][i] != 0:
           s[i][i] = 1 / s[i][i]
 
-      u = Vh.transpose().dot(np.square(s).dot(U.transpose()))
-      """
-      #"""
-      for i in range(len(s)):
-        if s[i] == 0:
-            continue
-        else:
-            s[i] = 1 / s[i]
-      s = np.diag(s)
       u = np.dot(np.dot(Vh, s), U.T)
-      #u = Vh.dot(s.dot(U.transpose()))
-      #"""
 
       return u
       
-    def calculateOptimalValueR(self, data_set = "train"):
+    def calculateOptimalValueR(self):
       """
       Calculates optimal value of number of columns and rows for CUR decomposition
       """
       min_error = 1e50
       min_error_index = 0
-
+      """
       if (data_set == "train"):
         r_range = [1,2,3,4,5,6,7,8,9,10,20,50,100,200,300,400]
       else:
         r_range = [1,2,3,4,5,6,7,8,9,10,20,50,100,150]
+      """
+      r_range = [400]
       print("Calculating optimal value of r...")
       for i in r_range:
-        m, error = self.computeCUR(i, dataset = data_set)
-        #error = self.RMSE(m)
-        if error < min_error:
+        m, error = self.computeCUR(i)
+        print(i, error, np.count_nonzero(m==0))
+        if (error < min_error and np.count_nonzero(m==0) != self.X * self.Y):
           min_error = error
           min_error_index = i
           best_m = m
-        #print(min_error,i)
-      #print('min error at ',min_error,min_error_index)
-      #print("Error at %d is %f"%(i, error))
+
       return best_m, min_error, min_error_index
 
     #Error computing
@@ -263,31 +250,27 @@ class RecommandationSystem():
 
         return results
 
-    def calculatePrecisionOnTopK(self, k):
+    def calculatePrecisionOnTopK(self, k, PM):
       """
       Calculates the Precision on Top K
       Arguments
         - k (int) : The k in Precision on Top k
+        - PM (matrix) : predicted matrix to compare with original
       
       Output
         - Precision on Top K
         - Recall on Top K
       """
-      test_set = self.test_set
+
       recall = 0
       precision = 0 
-      #pred_mat_test = []
-      #temp = test_set.dot(self.R.T)
-      for i in range(test_set.shape[0]):
-        query = test_set[i,:]
+      
+      for i in range(self.X):
+        query = self.M[i,:]
         query = np.reshape(query,(1, query.shape[0]))
 
-        temp = query.dot(self.R.T)
-
-        # needed to rescale predicted ratings
-        #prediction = np.divide(temp.dot(self.R), 100000)
-        prediction = temp.dot(self.R)
-        #pred_mat_test.append(prediction)
+        prediction = PM[i,:]
+        prediction = np.reshape(prediction,(1, prediction.shape[0]))
 
         idx = prediction.argsort()[0, ::-1]
         prediction = prediction[0,idx]
@@ -300,10 +283,6 @@ class RecommandationSystem():
         query[(query < 3) & (query > 0)] = 0
         query[query >= 3] = 1
 
-        #idx = prediction.argsort()[0, ::-1][:k]
-        #prediction = prediction[0,idx]
-        
-        #query = query[0, idx]]
         relevant_items = 0
         recommended_items = 0
         rec_relevant_items = 0
@@ -315,7 +294,6 @@ class RecommandationSystem():
           if (relevant_items == k): 
             break
           if (query[i] != -1):
-            #print("predicted: %d - True: %d"%(prediction[i], query[i]))
             if (query[i] == 1):
               relevant_items += 1 
               if(prediction[i] == 1):
@@ -332,7 +310,6 @@ class RecommandationSystem():
           if (recommended_items == k): 
             break
           if (query[i] != -1):
-            #print("predicted: %d - True: %d"%(prediction[i], query[i]))
             if (prediction[i] == 1):
               recommended_items += 1
               if(query[i] == 1):
@@ -343,22 +320,18 @@ class RecommandationSystem():
         else:
           precision_item = 0.0
         precision += precision_item
-
-      CUR_on_test, RMSE_on_test, r_value = self.calculateOptimalValueR(data_set = "test")
-      return RMSE_on_test, r_value, precision / test_set.shape[0], recall / test_set.shape[0]
+      
+      return precision / self.X, recall / self.X
 
 r = RecommandationSystem()
 print(r.recPreF1(r.NMF_MU(2, 10, 0.002)))
 
 #CUR and evaluation
-print("#########################################")
-print("Computing CUR and RMSE on training set.")
-CUR, RMSE, r_value = r.calculateOptimalValueR("train")
-topK = 50
-print("Computing RMSE on testing set and evaluation.")
-rmse_test, r_val_test, precision, recall = r.calculatePrecisionOnTopK(topK)
-print("Train set: RMSE = %f. Optimal value of r = %d\nTest set: RMSE = %f. Optimal value of r = %d. Precision on TOP %d = %f. Recall on TOP %d = %f"%(RMSE, r_value, rmse_test, r_val_test, topK, precision, topK, recall))
-print("#########################################")
+print("Computing CUR, RMSE, Precision, and Recall ...")
+CUR, RMSE = r.computeCUR(400)
+topK = 10
+precision, recall = r.calculatePrecisionOnTopK(topK, CUR)
+print("RMSE = %f. Precision on TOP %d = %f. Recall on TOP %d = %f"%(RMSE, topK, precision, topK, recall))
 
 #----SVD factorization --------------
 
@@ -455,5 +428,5 @@ for _ in range(10):
                 grad_pT+=-2*(R[i,x]-(Q[i,:]@pT[:,x]))*Q[i,k_] + 2*lamda*pT[k_,x]
             pT_[k_,x]-=n*grad_pT
 
-           
+
    

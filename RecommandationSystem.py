@@ -368,7 +368,6 @@ class SVD():
         print("rank:")
         return len(S)
   
-
 #----------------------------------------------------------------------------
 
 svd=SVD(R)
@@ -393,40 +392,194 @@ print("Q matrix:",Q.shape,"\n",Q)
 pT=s@VT[:20,:]
 print("\npT matrix:",pT.shape,"\n",pT)
 
-# -----------------------------------------------------------------------------------------
-
-# Perform SGD 
-
-grad_Q=0 #np.zeros((len_items,K))
-
-n=0.1
-lamda=0.1
-
-Q_=Q
-pT_=pT
-
-for _ in range(10): 
-    
-    for i_ in range(R.shape[0]):
-        for k in range(2):
-            for x in range(R.shape[1]):
-                grad_Q+=-2*(R[i_,x]-(Q[i_,:]@pT[:,x]))*pT[k,x] + 2*lamda*Q[i_,k]
-            Q_[i_,k]-=n*grad_Q
 
 
-print(Q_.shape)
-print(Q_)
-        
-    
-grad_pT=0 #np.zeros((K,len_users))
-
-for _ in range(10): 
-    
-    for k_ in range(2):
-        for x in range(R.shape[1]):
-            for i in range(R.shape[0]):
-                grad_pT+=-2*(R[i,x]-(Q[i,:]@pT[:,x]))*Q[i,k_] + 2*lamda*pT[k_,x]
-            pT_[k_,x]-=n*grad_pT
+#______________________SVD _ Factorization _ and SGD ________________________________________________
 
 
+# Import libraries 
+import pandas as pd
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+
+# Get data 
+!wget http://files.grouplens.org/datasets/movielens/ml-latest-small.zip
+!unzip ml-latest-small.zip
+
+#  Creat Dataframe
+csv_file=pd.read_csv("ml-latest-small/ratings.csv")
+utility_matrix=csv_file.pivot(index='movieId', columns='userId', values='rating').fillna(0.0)
+utility_matrix
+
+# Create utility matrix & replace unratings by zeros
+R = utility_matrix.to_numpy()
+print("Utility Matrix size",R.shape)
+print(R)
    
+#classe SVD
+class SVD():
+    def __init__(self, M):
+        self.M = M
+        
+    def computeSVD(self,M):
+        U, S, VT = np.linalg.svd(self.M, full_matrices=False)
+        s=np.diag(S)
+        return U, S, VT, s
+        
+    def plot_singular_values(self,s):
+        plt.semilogy(np.diagonal(s))
+        plt.title('plot Singular Values')
+        plt.show()
+        
+    def rank_S(self,S):
+        print("rank:")
+        return len(S)
+
+    
+# SVD Analysis
+svd=SVD(R)
+U, S, VT, s=svd.computeSVD(R)
+svd.plot_singular_values(s)
+print("len singular values list: \n",len(S),"\n")
+
+
+# Analyse energy of singular values :
+tot_energy=0
+for i in S: 
+    tot_energy+=pow(i,2)
+print("Total energy of singular values",tot_energy,"\n")
+
+i=0
+sigma=[]
+energy=0
+energy_threshold=0.31*tot_energy
+while energy<energy_threshold:
+    sigma.append(S[i])
+    energy+=pow(S[i],2)
+    i+=1
+    
+print("Most energetic singular values:")
+print((sigma),"\n")
+print("Number of most energetic singular values =",len(sigma))
+print("Energy =",energy,"\n")
+print("Energy ratio",energy/tot_energy)
+
+plt.semilogy(sigma)
+plt.title('plot most energetic Singular Values:\n')
+plt.show()
+
+
+#getting non zero values from the original matrix:
+len_items, len_users = R.shape
+dec={}
+i_j_R= [ 
+            (i, j, R[i][j])
+            for i in range(len_items)
+            for j in range(len_users)
+            if R[i, j] != 0
+        ]
+
+list_i=[]
+list_j=[]
+list_r=[]
+for i,j, r in i_j_R:
+    if i not in list_i:
+        list_i.append(i)
+    if j not in list_j:
+        list_j.append(j)
+    list_r.append(r)
+
+i_j_R_at3=[
+    (i,j,R[i][j])
+    for i in range(len_items)
+    for j in range(len_users)
+    if R[i, j] > 3
+]
+
+#__________________________________
+
+# SGD & RMSE & precision functions
+#__________________________________
+
+def grad_pT_func(R,Q,pT,list_j,list_i,k,len_items,len_users,lamda):
+    grad_pT=np.zeros((k,len_users))
+
+    for x,i in zip(list_j,list_i):
+        grad_pT[:,x]+=2*(Q[i,:].dot(pT[:,x])-R[i,x])*Q[i,:] + 2*lamda*pT[:,x]
+    
+    grad_pT=grad_pT/(len_users*k)
+
+    return grad_pT
+      
+    
+def grad_Q_func(R,Q,pT,list_j,list_i,k,len_items,len_users,lamda):
+    grad_Q=np.zeros((len_items,k))
+    
+    for x,i in zip(list_j,list_i):
+          grad_Q[i,:]+=2*(Q[i,:].dot(pT[:,x])-R[i,x])*pT[:,x] + 2*lamda*Q[i,:]
+    
+    grad_Q=grad_Q/(len_items*k)
+    
+    return grad_Q
+
+
+    
+def s_gradient_descent(R,len_items,len_users,list_j,list_i,k,learning_rate,iteration,lamda,lamda2):
+    Q = np.random.rand(len_items,k)*2
+    pT = np.random.rand(k,len_users)*2
+    
+    for _ in range(iteration):
+        pT=pT-learning_rate*grad_pT_func(R,Q,pT,list_j,list_i,k,len_items,len_users,lamda)
+        Q=Q-learning_rate*grad_Q_func(R,Q,pT,list_j,list_i,k,len_items,len_users,lamda2)
+    return Q,pT
+
+def RMSE(R, QpT):
+    rmse=0
+    for i,j,r in i_j_R:
+        rmse+=np.power(QpT[i,j]-R[i,j],2)
+    rmse_=np.sqrt(rmse/len(i_j_R))
+    
+    return rmse_
+
+def precision_func(i_j_R_at3,QpT):
+    Tp=0
+    for i,j,r in i_j_R_at3:
+        if QpT[i,j]>=3:
+            Tp+=1
+    precision=Tp/len(i_j_R_at3)
+    
+    return precision   
+#________________________SGD__RMSE__PRECISION ________________
+#_____________________________________________________________
+
+
+# Adjusting parameters and running SGD & RMSE functions
+
+iteration=73
+lamda=8.5
+lamda2=8.5
+learning_rate=0.71
+k=len(sigma)
+
+Q,pT=s_gradient_descent(R,len_items,len_users,list_j,list_i,k,learning_rate,iteration,lamda,lamda2)
+QpT=np.round(Q.dot(pT))
+rmse_err=RMSE(R,QpT)
+precision_=precision_func(i_j_R,QpT)
+print("PRECISION=",precision_)
+print("RMSE=",rmse_err)
+
+print("print QpT and R")
+print(QpT)
+print(R)
+
+'''for i,j,r in i_j_R:
+    print(QpT[i,j],R[i,j],r,"\n")'''
+
+
+
+
+
+
+
+
